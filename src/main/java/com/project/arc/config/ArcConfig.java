@@ -33,18 +33,18 @@ public class ArcConfig {
                 .build();
     }
 
-    // 3. L3 Semantic: ChromaDB (Vector store)
-    public ChromaEmbeddingStore chromaStore() {
-        return ChromaEmbeddingStore.builder()
-                .baseUrl("http://localhost:8000")
-                .collectionName("project-arc-knowledge")
-                .build();
-    }
-
-    // 4. L3 Relational: Neo4j (Graph Store)
+    // 3. L3 Relational: Neo4j (Graph Store)
     public Neo4jEmbeddingStore neo4jStore() {
+        String uri = System.getenv("NEO4J_URI"); // e.g., "bolt://localhost:7687"
+        String user = System.getenv("NEO4J_USER");
+        String password = System.getenv("NEO4J_PASSWORD");
         return Neo4jEmbeddingStore.builder()
-                .withBasicAuth("bolt://localhost:7687", "neo4j", "password")
+                .driver(neo4jDriver())
+                .label("MemoryNode")
+                .embeddingProperty("embedding")
+                .textProperty("content")
+                .indexName("memory_vector_finder")
+                .withBasicAuth(uri, user, password)
                 .dimension(768)
                 .build();
     }
@@ -59,8 +59,8 @@ public class ArcConfig {
 
     // Direct Driver for Autonomous Linking
     public Driver neo4jDriver(){
-        return GraphDatabase.driver("bolt://localhost:7687",
-                AuthTokens.basic("neo4j", "password")
+        return GraphDatabase.driver(System.getenv("NEO4J_URI"),
+                AuthTokens.basic(System.getenv("NEO4J_URI"), System.getenv("NEO4J_PASSWORD"))
         );
     }
 }

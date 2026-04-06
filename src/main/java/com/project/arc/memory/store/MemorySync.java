@@ -9,12 +9,14 @@ import dev.langchain4j.data.message.ChatMessage;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import com.project.arc.config.ArcConfig;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
+import org.neo4j.driver.Values;
 
 
 public class MemorySync {
@@ -45,17 +47,13 @@ public class MemorySync {
     public void executeMemorySync(String sessionID) {
 
         // 1. Perform Triage & Crystallization
-        String triagePrompt = "Boss, I am analyzing our last session. " +
-                "Extract any technical notes, project goals, or code logic as 'FACTS'. (e.g., 'User prefers dark mode', 'Project deadline is Friday'). " +
-                "Extract any class relationships or teammate roles as 'CONNECTIONS'. (e.g., 'User is working on ArcConfig.java', 'Naman is a teammate'). " +
-                "Conversation:\n";
+        String triagePrompt = "Analyze this conversation history. Extract knowledge into a unified Graph structure." +
+                "For each piece of information, provide a triplet in the format:" +
+                "TRIPLET: [Subject] -> (Relationship) -> [Object] | Context: 'Full descriptive sentence'" +
+                "Example: TRIPLET: [Project ARC] -> (uses) -> [Redis] | Context: 'Project ARC uses Redis as its L2 persistent memory for conversation history.'";
 
         String triagedData = arcBrain.generate(triagePrompt + msgHistory(sessionID));
         processTriage(triagedData);
-
-        // 2. Execute Autonomous Graph Linking
-        GraphSchema graphSchema = new GraphSchema(config);
-        graphSchema.executeAutonomousLinking(msgHistory(sessionID));
 
         // 3. Maintenance: Flush L2 to keep system fast
         config.redisStore().deleteMessages(sessionID);
@@ -64,31 +62,55 @@ public class MemorySync {
     }
 
     private void processTriage(String triagedResult){
-        // 1. Identify the 'Sectors' from Gemini's response
-        for (String line: triagedResult.split("\n")) {
-            String content = line.substring(line.indexOf(":") + 1).trim();
+        Pattern tripletPattern = Pattern.compile("TRIPLET:\\s*\\[(.*?)\\]\\s*->\\s*\\((.*?)\\)\\s*->\\s*\\[(.*?)\\]\\s*\\|\\s*Context:\\s*'(.*?)'");
 
-            String chunkID = UUID.randomUUID().toString();
-            TextSegment segment = TextSegment.from(content);
-            segment.metadata().put("chunk_id", chunkID);
+        String[] lines = triagedResult.split("\n");
 
-            if (line.startsWith("FACT:")) {
-                crystallizeSemantic(segment); // Route to CHROMA
-            } else if (line.startsWith("CONNECTION:")){
-                crystallizeRelational(segment); // Route to NEO4J
+        for (String line : lines) {
+            Matcher matcher = tripletPattern.matcher(line.trim());
 
+            if (matcher.find()) {
+                String subject = matcher.group(1).trim();
+                String predicate = matcher.group(2).trim().toUpperCase().replace(" ", "_");
+                String object = matcher.group(3).trim();
+                String context = matcher.group(4).trim();
+
+                // 1. Update the Graph (Relational Memory)
+                updateGraphMemory(subject, predicate, object, context);
+
+                // 2. Update the Vector Store (Semantic Memory)
+                updateVectorMemory(subject, object, context);
             }
         }
     }
-    public void crystallizeSemantic(TextSegment segment){
-        dev.langchain4j.data.embedding.Embedding embedding = config.embeddingModel().embed(segment).content();
 
-        config.chromaStore().add(embedding, segment);
+    /**
+     * Executes a Cypher query to create or merge nodes and their relationship.
+     * This ensures the graph is always connected.
+     */
+    private void updateGraphMemory(String subject, String predicate, String object, String context) {
+        try(var session = config.neo4jDriver().session()) {
+            session.executeWrite(tx -> {
+                String cypher = String.format(
+                        "MERGE (s:Entity {name: $subject}) " +
+                                "MERGE (o:Entity {name: $object}) " +
+                                "MERGE (s)-[r:%s]->(o) " +
+                                "SET r.context = $context, r.timestamp = datetime() " +
+                                "RETURN r", predicate);
+                return tx.run(cypher, Values.parameters(
+                        "subject", subject,
+                        "object", object,
+                        "context", context
+                )).consume();
+            });
+        }
     }
-    public void crystallizeRelational(TextSegment segment){
-        dev.langchain4j.data.embedding.Embedding embedding = config.embeddingModel().embed(segment).content();
 
-        config.neo4jStore().add(embedding, segment);
+    //Embeds the descriptive context and stores it in the Neo4j vector index.
+    private void updateVectorMemory(String subject, String object, String context) {
+        String enrichedText = String.format("Relationship: %s and %s. Detail: %s", subject, object, context);
+        TextSegment segment = TextSegment.from(enrichedText);
+        config.neo4jStore().add(config.embeddingModel().embed(segment).content(), segment);
     }
 
 

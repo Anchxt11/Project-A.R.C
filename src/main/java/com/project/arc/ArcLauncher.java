@@ -20,9 +20,11 @@ public class ArcLauncher {
                 .chatLanguageModel(config.model())
                 .tools(new ArcTools(memoryRetrievalService))
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
+                        .id(memoryId)
                         .chatMemoryStore(config.redisStore())
-                        .maxMessages(20)
+                        .maxMessages(10)
                         .build())
+
                 .retrievalAugmentor(memoryRetrievalService.getAugmenter())
                 .build();
 
