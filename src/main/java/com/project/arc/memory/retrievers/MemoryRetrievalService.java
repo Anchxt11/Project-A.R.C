@@ -3,10 +3,8 @@
 
 package com.project.arc.memory.retrievers;
 
-import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
 
 import dev.langchain4j.rag.content.Content;
-import dev.langchain4j.rag.query.router.QueryRouter;
 import dev.langchain4j.rag.query.router.LanguageModelQueryRouter;
 
 import dev.langchain4j.rag.RetrievalAugmentor;

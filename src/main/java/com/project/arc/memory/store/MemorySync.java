@@ -37,7 +37,6 @@ public class MemorySync {
 
         int evictionCount = history.size() - Max_l2Size;
         List<ChatMessage> evictedMessages = history.subList(0, evictionCount);
-        List<ChatMessage> remainingMessages = history.subList(evictionCount, history.size());
 
         String overFlowMessages = evictedMessages.stream()
                 .map(msg -> String.format("[%s] %s: %s",
