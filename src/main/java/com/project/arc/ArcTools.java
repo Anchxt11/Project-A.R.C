@@ -1,4 +1,4 @@
-package com.project.arc;
+/*package com.project.arc;
 
 import dev.langchain4j.agent.tool.Tool;
 import com.project.arc.memory.retrievers.MemoryRetrievalService;
@@ -15,3 +15,4 @@ public class ArcTools {
         return memoryRetrievalService.deepScan(topic);
     }
 }
+*/

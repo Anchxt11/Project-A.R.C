@@ -15,10 +15,3 @@ services:
       - NEO4J_AUTH=neo4j/password
     volumes:
       - ./neo4j-data:/data
-
-  chroma:
-    image: chromadb/chroma:latest
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./chroma-data:/chroma/chroma

@@ -25,18 +25,19 @@ public class GraphRetriever {
 
     public List<Content> retrieveThroughTraversal(String query) {
 
-        String cypherQuery = "MATCH (n)-[r]-(m) " +
-                "WHERE n.text CONTAINS $query OR m.text CONTAINS $query " +
-                "RETURN n.text AS source, type(r) AS relationship, m.text AS target LIMIT 10";
+        String cypherQuery = "MATCH (n:MemoryNode)-[r]-(m:MemoryNode) " +
+                "WHERE n.name CONTAINS $query OR m.name CONTAINS $query " +
+                "RETURN n.name AS source, type(r) AS relationship, r.context AS detail, m.name AS target LIMIT 10";
 
         try (Session session = config.neo4jDriver().session()) {
             return session.executeRead(tx -> {
                 Result result = tx.run(cypherQuery, Map.of("query", query));
                 return result.list().stream()
                         .map(record -> Content.from(
-                                String.format("[%s] --(%s)--> [%s]",
+                                String.format("[%s] --(%s: %s)--> [%s]",
                                         record.get("source").asString(),
                                         record.get("relationship").asString(),
+                                        record.get("detail").asString(),
                                         record.get("target").asString())))
                         .collect(Collectors.toList());
             });
@@ -50,10 +51,17 @@ public class GraphRetriever {
 
                 return result.list().stream()
                         .map(record -> {
-                            String contentText = record.values().stream()
-                                    .map(value -> value.asObject().toString())
-                                    .collect(Collectors.joining(" | "));
-                            return Content.from(contentText);
+                            if (record.size() == 4) {
+                                return Content.from(String.format("[%s] --(%s: %s)--> [%s]",
+                                        record.get(0).asString(),
+                                        record.get(1).asString(),
+                                        record.get(2).asString(),
+                                        record.get(3).asString()));
+                            }
+                            //Fallback
+                            return Content.from(record.values().stream()
+                                    .map(value -> value.type().name().equals("STRING") ? value.asString() : value.toString())
+                                    .collect(Collectors.joining(" | ")));
                         })
                         .collect(Collectors.toList());
             });

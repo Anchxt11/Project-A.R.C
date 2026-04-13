@@ -9,22 +9,26 @@ import dev.langchain4j.service.AiServices;
 
 import java.util.Scanner;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 public class ArcLauncher {
     public static void main(String[] args) {
+
+        int MAX_L2_MESSAGES = 10; // The desired threshold
+
+
         ArcConfig config = new ArcConfig();
-        MemoryRetrievalService memoryRetrievalService = new MemoryRetrievalService(config, config.model());
+        MemoryRetrievalService memoryRetrievalService = new MemoryRetrievalService(config);
         MemorySync syncEngine = new MemorySync(config);
 
         ArcAssistant ARC = AiServices.builder(ArcAssistant.class)
                 .chatLanguageModel(config.model())
-                .tools(new ArcTools(memoryRetrievalService))
+                //.tools(new ArcTools(memoryRetrievalService))
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
                         .chatMemoryStore(config.redisStore())
                         .maxMessages(10)
                         .build())
-
                 .retrievalAugmentor(memoryRetrievalService.getAugmenter())
                 .build();
 
@@ -38,17 +42,15 @@ public class ArcLauncher {
 
             if(input.equalsIgnoreCase("exit") || input.equalsIgnoreCase("shutdown")) {
                 System.out.println("ARC: Crystallizing session before shutdown...");
-                syncEngine.executeMemorySync(sessionID);
+                syncEngine.maintainSlidingWindow(sessionID);
                 System.out.println("ARC: Offline. Safe travels, Sir.");
                 break;
             }
 
-            if (input.toLowerCase().contains("deep scan")) {
-                System.out.println("\nARC: " + memoryRetrievalService.deepScan(input));
-            } else {
-                System.out.println("\nARC: " + ARC.chat(sessionID, input));
-            }
-
+            System.out.println("\nARC: " + ARC.chat(sessionID, input));
+            CompletableFuture.runAsync(() -> {
+                syncEngine.maintainSlidingWindow(sessionID, MAX_L2_MESSAGES);
+            });
         }
     }
 }

@@ -1,18 +1,14 @@
-/*THIS FILE CONTAINS METHOD TO TAKE MEMORY DATA FROM REDIS AND TRANSFER IT TO NEO4J and CHROMADB
-* ALSO THIS ONLY USES THE "VIBE" METHOD FOR NEO4J*/
-
+//THIS FILE CONTAINS METHOD TO TAKE MEMORY DATA FROM REDIS AND TRANSFER IT TO NEO4J
 
 package com.project.arc.memory.store;
 
 import dev.langchain4j.data.message.ChatMessage;
-
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
 import com.project.arc.config.ArcConfig;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
@@ -20,40 +16,73 @@ import org.neo4j.driver.Values;
 
 
 public class MemorySync {
+    //Defining Variables
     private final GoogleAiGeminiChatModel arcBrain;
     private final ArcConfig config;
 
-
+    //Constructing Variables
     public MemorySync(ArcConfig config) {
         this.config = config;
         this.arcBrain = config.model();
     }
 
-
-    // 1. Fetch the raw conversation from L2(redis)
-    public String msgHistory(String sessionID){
+    //Finding fixed messges out of L1 Window and adding them to L3
+    public void maintainSlidingWindow(String sessionID, int Max_l2Size){
         List<ChatMessage> history = config.redisStore().getMessages(sessionID);
-        if(history.isEmpty()) return null;
 
-        return history.stream()
-                .map(msg-> String.format("[%s] %s: %s",
+        if (history.size() < Max_l2Size) {
+            return;
+        }
+        System.out.println("ARC: L2 Capacity Exceeded. Evicting oldest" + (history.size() - Max_l2Size)+"messages to L3");
+
+        int evictionCount = history.size() - Max_l2Size;
+        List<ChatMessage> evictedMessages = history.subList(0, evictionCount);
+        List<ChatMessage> remainingMessages = history.subList(evictionCount, history.size());
+
+        String overFlowMessages = evictedMessages.stream()
+                .map(msg -> String.format("[%s] %s: %s",
                         LocalTime.now().format(DateTimeFormatter.ISO_LOCAL_TIME),
                         msg.type().name(),
                         msg))
                 .collect(Collectors.joining("\n"));
+
+        String triagePrompt = "The following messages are being evicted from short-term memory. Extract knowledge into a unified Graph structure." +
+                "For each piece of information, provide a triplet in the format:" +
+                "TRIPLET: [Subject] -> (Relationship) -> [Object] | Context: 'Full descriptive sentence'" +
+                "Example: TRIPLET: [Project ARC] -> (uses) -> [Redis] | Context: 'Project ARC uses Redis as its L2 persistent memory for conversation history.'";
+
+        String triagedData = arcBrain.generate(triagePrompt + overFlowMessages);
+        processTriage(triagedData);
+
+
+
+        System.out.println("ARC: L2 pruned. L3 Graph updated with evicted context.");
+
     }
 
-    // Transfers data from L2 (Redis) to L3 (Chroma/Neo4j)
-    public void executeMemorySync(String sessionID) {
+    //Finding all messges out of L1 Window and adding them to L3
+    public void maintainSlidingWindow(String sessionID){
+        List<ChatMessage> history = config.redisStore().getMessages(sessionID);
 
-        // 1. Perform Triage & Crystallization
+        if (history.isEmpty()) return;
+
+        System.out.println("ARC: Clearing L2. Evicting all messages to L3");
+
+        String msges = history.stream()
+                .map(msg -> String.format("[%s] %s: %s",
+                        LocalTime.now().format(DateTimeFormatter.ISO_LOCAL_TIME),
+                        msg.type().name(),
+                        msg))
+                .collect(Collectors.joining("\n"));
+
         String triagePrompt = "Analyze this conversation history. Extract knowledge into a unified Graph structure." +
                 "For each piece of information, provide a triplet in the format:" +
                 "TRIPLET: [Subject] -> (Relationship) -> [Object] | Context: 'Full descriptive sentence'" +
                 "Example: TRIPLET: [Project ARC] -> (uses) -> [Redis] | Context: 'Project ARC uses Redis as its L2 persistent memory for conversation history.'";
 
-        String triagedData = arcBrain.generate(triagePrompt + msgHistory(sessionID));
+        String triagedData = arcBrain.generate(triagePrompt + msges);
         processTriage(triagedData);
+
 
         // 3. Maintenance: Flush L2 to keep system fast
         config.redisStore().deleteMessages(sessionID);
@@ -61,12 +90,16 @@ public class MemorySync {
 
     }
 
-    private void processTriage(String triagedResult){
-        Pattern tripletPattern = Pattern.compile("TRIPLET:\\s*\\[(.*?)\\]\\s*->\\s*\\((.*?)\\)\\s*->\\s*\\[(.*?)\\]\\s*\\|\\s*Context:\\s*'(.*?)'");
+    //Processing data and adding to L3
+    public void processTriage(String triagedResult){
+        Pattern tripletPattern = Pattern.compile("TRIPLET:\\s*\\[(.*?)]\\s*->\\s*\\((.*?)\\)\\s*->\\s*\\[(.*?)]\\s*\\|\\s*Context:\\s*['\"]?(.*?)['\"]?$",
+                Pattern.MULTILINE| Pattern.CASE_INSENSITIVE
+        );
 
         String[] lines = triagedResult.split("\n");
 
         for (String line : lines) {
+            if (line.trim().isEmpty()) continue;
             Matcher matcher = tripletPattern.matcher(line.trim());
 
             if (matcher.find()) {
@@ -80,6 +113,8 @@ public class MemorySync {
 
                 // 2. Update the Vector Store (Semantic Memory)
                 updateVectorMemory(subject, object, context);
+            } else if (line.trim().startsWith("TRIPLET:")) {
+                System.out.println("ARC Diagnostic: Failed to parse potential triplet ->" + line.trim());
             }
         }
     }
@@ -112,6 +147,4 @@ public class MemorySync {
         TextSegment segment = TextSegment.from(enrichedText);
         config.neo4jStore().add(config.embeddingModel().embed(segment).content(), segment);
     }
-
-
 }

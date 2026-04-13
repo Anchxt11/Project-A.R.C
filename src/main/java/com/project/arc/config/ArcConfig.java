@@ -6,7 +6,6 @@ import dev.langchain4j.model.googleai.GoogleAiEmbeddingModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
 
 import dev.langchain4j.store.memory.chat.redis.RedisChatMemoryStore;
-import dev.langchain4j.store.embedding.chroma.ChromaEmbeddingStore;
 import dev.langchain4j.community.store.embedding.neo4j.Neo4jEmbeddingStore;
 
 import org.neo4j.driver.AuthTokens;
@@ -24,6 +23,7 @@ public class ArcConfig {
                 .temperature(0.6)
                 .build();
     }
+
 
     // 2. L2 Persistent Memory (Redis)
     public RedisChatMemoryStore redisStore() {
@@ -60,7 +60,8 @@ public class ArcConfig {
     // Direct Driver for Autonomous Linking
     public Driver neo4jDriver(){
         return GraphDatabase.driver(System.getenv("NEO4J_URI"),
-                AuthTokens.basic(System.getenv("NEO4J_URI"), System.getenv("NEO4J_PASSWORD"))
+                AuthTokens.basic(System.getenv("NEO4J_USER"), System.getenv("NEO4J_PASSWORD"))
         );
     }
+
 }

@@ -15,6 +15,7 @@ import dev.langchain4j.rag.DefaultRetrievalAugmentor;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,36 +27,34 @@ public class MemoryRetrievalService {
     private final RetrievalAugmentor augmentor;
     private final ArcConfig config;
 
-    public MemoryRetrievalService(ArcConfig config, GoogleAiGeminiChatModel routingModel){
+    public MemoryRetrievalService(ArcConfig config){
         this.config = config;
 
-        // 1. Initialize Semantic Retriever (ChromaDB)
-        ContentRetriever semanticRetriever = EmbeddingStoreContentRetriever.builder()
-                .embeddingStore(config.chromaStore())
-                .embeddingModel(config.embeddingModel())
-                .maxResults(3)
-                .build();
-
         // 2. Initialize Structural Retriever (Neo4j)
-        ContentRetriever graphRetriever = EmbeddingStoreContentRetriever.builder()
+        ContentRetriever shallowRetriever = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(config.neo4jStore())
                 .embeddingModel(config.embeddingModel())
                 .maxResults(3)
                 .build();
 
+        ContentRetriever deepRetriever = query -> {
+            String sitrep = deepScan(query.text());
+            return Collections.singletonList(Content.from(sitrep));
+        };
+
         // 3. Define Routing Logic
-        Map<ContentRetriever, String> selection = new HashMap<>();
-        selection.put(semanticRetriever,
-                "Personal notes, technical documentation, code snippets, and general facts." +
-                        "Use this for retrieving the 'what' and 'content' of any saved information.");
-        selection.put(graphRetriever,
-                "Use this for mapping relationships, class hierarchies, file dependencies, and project " +
+        Map<ContentRetriever, String> routingRules = new HashMap<>();
+        routingRules.put(shallowRetriever,
+                "Personal notes, technical documentation, code snippets, and general and simple facts." +
+                        "Use this for 90% of the queries.");
+        routingRules.put(deepRetriever,
+                "Use this for mapping relationships, class hierarchies, hidden connections,file dependencies, and project " +
                         "structure. It contains the architectural 'how' and the links between different entities.");
 
         // Building the query Router
-        QueryRouter router = LanguageModelQueryRouter.builder()
-                .chatLanguageModel(routingModel)
-                .retrieverToDescription(selection)
+        var router = LanguageModelQueryRouter.builder()
+                .chatLanguageModel(config.model())
+                .retrieverToDescription(routingRules)
                 .build();
 
         //4. Central Router
