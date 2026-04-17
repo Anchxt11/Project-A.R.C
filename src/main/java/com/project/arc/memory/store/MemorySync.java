@@ -5,88 +5,91 @@ package com.project.arc.memory.store;
 import dev.langchain4j.data.message.ChatMessage;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import com.project.arc.config.ArcConfig;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
+import dev.langchain4j.model.chat.ChatModel;
 import org.neo4j.driver.Values;
 
 
 public class MemorySync {
     //Defining Variables
-    private final GoogleAiGeminiChatModel arcBrain;
+    private final ChatModel arcBrain;
     private final ArcConfig config;
 
     //Constructing Variables
     public MemorySync(ArcConfig config) {
         this.config = config;
-        this.arcBrain = config.model();
+        this.arcBrain = config.ollamaModel();
     }
 
-    //Finding fixed messges out of L1 Window and adding them to L3
-    public void maintainSlidingWindow(String sessionID, int Max_l2Size){
+    //Finding 2 oldest messages out of L1 Window and adding them to L3
+    public List<ChatMessage> getAndPrune(String sessionID, int Max_l2Size){
         List<ChatMessage> history = config.redisStore().getMessages(sessionID);
 
         if (history.size() < Max_l2Size) {
-            return;
+            return Collections.emptyList();
         }
-        System.out.println("ARC: L2 Capacity Exceeded. Evicting oldest" + (history.size() - Max_l2Size)+"messages to L3");
+        System.out.println("ARC: L2 Capacity Exceeded. Evicting oldest 2 messages to L3");
 
-        int evictionCount = history.size() - Max_l2Size;
+        int evictionCount = 2;
         List<ChatMessage> evictedMessages = history.subList(0, evictionCount);
+        List<ChatMessage> remainingMessages = history.subList(evictionCount, history.size());
 
-        String overFlowMessages = evictedMessages.stream()
-                .map(msg -> String.format("[%s] %s: %s",
-                        LocalTime.now().format(DateTimeFormatter.ISO_LOCAL_TIME),
-                        msg.type().name(),
-                        msg))
-                .collect(Collectors.joining("\n"));
+        // INSTANT UPDATE: This happens in milliseconds
+        config.redisStore().deleteMessages(sessionID);
+        config.redisStore().updateMessages(sessionID, remainingMessages);
 
-        String triagePrompt = "The following messages are being evicted from short-term memory. Extract knowledge into a unified Graph structure." +
-                "For each piece of information, provide a triplet in the format:" +
-                "TRIPLET: [Subject] -> (Relationship) -> [Object] | Context: 'Full descriptive sentence'" +
-                "Example: TRIPLET: [Project ARC] -> (uses) -> [Redis] | Context: 'Project ARC uses Redis as its L2 persistent memory for conversation history.'";
-
-        String triagedData = arcBrain.generate(triagePrompt + overFlowMessages);
-        processTriage(triagedData);
-
-
-
-        System.out.println("ARC: L2 pruned. L3 Graph updated with evicted context.");
+        return evictedMessages;
 
     }
 
-    //Finding all messges out of L1 Window and adding them to L3
-    public void maintainSlidingWindow(String sessionID){
+    //Finding all messages out of L1 Window and adding them to L3
+    public void exitFlush(String sessionID){
         List<ChatMessage> history = config.redisStore().getMessages(sessionID);
 
-        if (history.isEmpty()) return;
+        if (history.isEmpty()) return ;
 
         System.out.println("ARC: Clearing L2. Evicting all messages to L3");
 
-        String msges = history.stream()
-                .map(msg -> String.format("[%s] %s: %s",
-                        LocalTime.now().format(DateTimeFormatter.ISO_LOCAL_TIME),
-                        msg.type().name(),
-                        msg))
-                .collect(Collectors.joining("\n"));
-
-        String triagePrompt = "Analyze this conversation history. Extract knowledge into a unified Graph structure." +
-                "For each piece of information, provide a triplet in the format:" +
-                "TRIPLET: [Subject] -> (Relationship) -> [Object] | Context: 'Full descriptive sentence'" +
-                "Example: TRIPLET: [Project ARC] -> (uses) -> [Redis] | Context: 'Project ARC uses Redis as its L2 persistent memory for conversation history.'";
-
-        String triagedData = arcBrain.generate(triagePrompt + msges);
-        processTriage(triagedData);
-
+        archiveToL3(history);
 
         // 3. Maintenance: Flush L2 to keep system fast
         config.redisStore().deleteMessages(sessionID);
         System.out.println("ARC: Session crystallized. L2 cache flushed.");
 
+
+
+    }
+
+
+
+    //Main Method to send messages to L3
+    public void archiveToL3(List<ChatMessage> messages){
+        if (messages.isEmpty()) return;
+
+        String overFlowMessages = messages.stream()
+                .filter(msg -> msg.type() != ChatMessageType.SYSTEM)
+                .map(msg -> String.format("[%s] %s: %s",
+                        LocalTime.now().format(DateTimeFormatter.ISO_LOCAL_TIME),
+                        msg.type().name(),
+                        msg))
+                .collect(Collectors.joining("\n"));
+
+        if (overFlowMessages.trim().isEmpty()) return;
+
+        String triagePrompt = "Extract key facts from these messages into triplets. " +
+                "TRIPLET: [Subject] -> (Relationship) -> [Object] | Context: 'Full descriptive sentence'" +
+                "Example: TRIPLET: [Project ARC] -> (uses) -> [Redis] | Context: 'Project ARC uses Redis as its L2 persistent memory for conversation history.'";
+
+        String triagedData = arcBrain.chat(triagePrompt + overFlowMessages);
+        processTriage(triagedData);
+        System.out.println("ARC: L2 pruned. L3 Graph updated with evicted context.");
     }
 
     //Processing data and adding to L3
@@ -118,10 +121,7 @@ public class MemorySync {
         }
     }
 
-    /**
-     * Executes a Cypher query to create or merge nodes and their relationship.
-     * This ensures the graph is always connected.
-     */
+     //Executes a Cypher query to create or merge nodes and their relationship.
     private void updateGraphMemory(String subject, String predicate, String object, String context) {
         try(var session = config.neo4jDriver().session()) {
             session.executeWrite(tx -> {

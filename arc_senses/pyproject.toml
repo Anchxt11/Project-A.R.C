@@ -1,0 +1,9 @@
+[project]
+name = "arc-senses"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.14"
+dependencies = [
+    "fastmcp>=3.2.4",
+    "psutil>=7.2.2",
+]

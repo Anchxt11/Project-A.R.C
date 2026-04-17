@@ -1,4 +1,4 @@
-/*THIS FILE CONTAINS CODE FOR RETRIEVING DATA FROM CHROMADB OR NEO4J*/
+/*THIS FILE CONTAINS CODE FOR RETRIEVING DATA FROM NEO4J*/
 
 
 package com.project.arc.memory.retrievers;
@@ -51,7 +51,7 @@ public class MemoryRetrievalService {
 
         // Building the query Router
         var router = LanguageModelQueryRouter.builder()
-                .chatLanguageModel(config.model())
+                .chatModel(config.ollamaModel())
                 .retrieverToDescription(routingRules)
                 .build();
 
@@ -75,7 +75,7 @@ public class MemoryRetrievalService {
         List<Content> initialFindings = graphRetriever.retrieveThroughTraversal(userQuery);
 
         // 2. PHASE 2: Breadcrumb
-        String breadcrumbAction = config.model().generate(
+        String breadcrumbAction = config.geminiModel().chat(
                 String.format(prompts.BREADCRUMB_PROMPT, initialFindings.toString())
         );
 
@@ -85,7 +85,7 @@ public class MemoryRetrievalService {
         }
 
         // 3. PHASE 3: Explorer
-        return config.model().generate(
+        return config.geminiModel().chat(
                 String.format(prompts.GRAPH_EXPLORER_PROMPT, initialFindings)
                 + "\nUser Query: " + userQuery
         );
