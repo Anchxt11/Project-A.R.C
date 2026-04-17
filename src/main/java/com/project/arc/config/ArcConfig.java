@@ -1,9 +1,5 @@
 package com.project.arc.config;
 
-import dev.langchain4j.mcp.McpToolProvider;
-import dev.langchain4j.mcp.client.DefaultMcpClient;
-import dev.langchain4j.mcp.client.McpClient;
-import dev.langchain4j.mcp.client.transport.stdio.StdioMcpTransport;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.googleai.GoogleAiEmbeddingModel;
@@ -14,6 +10,7 @@ import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
 import dev.langchain4j.community.store.embedding.neo4j.Neo4jEmbeddingStore;
 
 import dev.langchain4j.model.ollama.OllamaChatModel;
+import io.github.cdimascio.dotenv.Dotenv;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
@@ -24,11 +21,16 @@ import java.util.List;
 public class ArcConfig {
 
     public final int MEMORY_THRESHOLD = 8;
+    private final Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
+
+    private String getEnv(String key) {
+        return dotenv.get(key) != null ? dotenv.get(key) : System.getenv(key);
+    }
 
     // 1. LLM Connection (Gemini 2.5 Flash)
     public ChatModel geminiModel(){
         return GoogleAiGeminiChatModel.builder()
-                .apiKey("AIzaSyBXzm1GzA7sdVAnVH_nbULMiCA6Wpus28A")
+                .apiKey(getEnv("GEMINI_API_KEY"))
                 .modelName("gemini-2.5-flash")
                 .temperature(0.2)
                 .build();
@@ -72,7 +74,7 @@ public class ArcConfig {
     // Embedding Model (GOOGLE)
     public EmbeddingModel embeddingModel() {
         return GoogleAiEmbeddingModel.builder()
-                .apiKey("AIzaSyBXzm1GzA7sdVAnVH_nbULMiCA6Wpus28A")
+                .apiKey(getEnv("GEMINI_API_KEY"))
                 .modelName("gemini-embedding-2-preview")
                 .build();
     }
@@ -84,16 +86,6 @@ public class ArcConfig {
         );
     }
 
-    public McpToolProvider mcpToolProvider() {
-        McpClient pythonSenses = DefaultMcpClient.builder()
-                .transport(new StdioMcpTransport.Builder()
-                        .command(List.of("python", "C:/path/to/arc_senses.py"))
-                       .build())
-                .build();
 
-        return McpToolProvider.builder()
-                .mcpClients(List.of(pythonSenses))
-                .build();
-    }
 
 }
