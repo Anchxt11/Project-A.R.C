@@ -1,5 +1,6 @@
 package com.project.arc.Automation;
 
+import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 
 public class ArcTools {
@@ -15,7 +16,9 @@ public class ArcTools {
     }
 
     @Tool("Recursively searches for a file by name starting from a specific directory and opens it")
-    public String deepSearchAndOpen(String fileName, String startFolder) {
+    public String deepSearchAndOpen(
+            @P("Name of the file user wants to open like a pdf, txt, md, py, java") String fileName,
+            @P("The directory where user wants to search in like Downloads, Documents, Picture or the project directory") String startFolder) {
         String root;
         String home = System.getProperty("user.home");
 

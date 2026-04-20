@@ -3,6 +3,8 @@ package com.project.arc;
 import com.project.arc.Automation.ArcTools;
 import com.project.arc.Automation.AutomationService;
 import com.project.arc.Automation.FileSystemTools;
+import com.project.arc.Automation.MediaTools;
+import com.project.arc.Automation.ScreenshotTool;
 import com.project.arc.Automation.WebTool;
 import com.project.arc.config.ArcAssistant;
 import com.project.arc.config.ArcConfig;
@@ -24,6 +26,9 @@ import java.util.concurrent.CompletableFuture;
  * Handles system initialization, AI service orchestration, and synchronized UI loops.
  */
 public class ArcLauncher {
+
+    private static Scanner scanner;
+
     public static void main(String[] args) {
 
         // 1. Initialize Core Services
@@ -35,26 +40,33 @@ public class ArcLauncher {
         FileSystemTools fileSystemTools = new FileSystemTools();
         MCPToolProvider mcpTool = new MCPToolProvider();
         WebTool webTool = new WebTool(automationService);
-        Scanner scanner = new Scanner(System.in);
+        ScreenshotTool screenshotTool = new ScreenshotTool(config.visionModel(), automationService);
+        MediaTools mediaTools = new MediaTools(automationService); // NEW
 
+        scanner = new Scanner(System.in);
 
         // 2. Build ARC Assistant Service
         ArcAssistant ARC = AiServices.builder(ArcAssistant.class)
                 .streamingChatModel(config.streamingGeminiModel())
                 .chatModel(config.geminiModel())
-                .tools(arcTools, fileSystemTools, webTool)
+                // Added mediaTools to the tool list
+                .tools(arcTools, fileSystemTools, webTool, screenshotTool, mediaTools)
                 .toolProvider(mcpTool.mcpToolProvider())
                 .beforeToolExecution(event -> {
                     ToolExecutionRequest toolRequest = event.request();
-                    // Intercept and authorize any modification attempts
                     if (toolRequest.name().contains("write") || toolRequest.name().contains("append")) {
-                        authorizeModification(toolRequest);
+                        authorizeModification(toolRequest, scanner);
                     }
                 })
                 .afterToolExecution(event -> {
-                    Object result = event.result();
-                    if (result != null) {
-                        System.out.println("\n[PROTOCOL RESULT]: " + result.toString());
+                    String toolName = event.request().name();
+                    // Don't echo raw output for search or vision — ARC summarizes these
+                    if (!toolName.equalsIgnoreCase("searchWeb")
+                            && !toolName.equalsIgnoreCase("screenshotAndAnalyze")) {
+                        Object result = event.result();
+                        if (result != null) {
+                            System.out.println("\n[PROTOCOL RESULT]: " + result);
+                        }
                     }
                 })
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
@@ -71,18 +83,29 @@ public class ArcLauncher {
 
         // 3. Main Command Loop
         while (true) {
-            String input = scanner.nextLine();
+            String input = scanner.nextLine().trim();
 
-            // Handle System Shutdown
+            if (input.isEmpty()) {
+                System.out.print("> ");
+                continue;
+            }
+
             if (input.equalsIgnoreCase("exit") || input.equalsIgnoreCase("shutdown")) {
                 System.out.println("ARC: Crystallizing session before shutdown...");
                 syncEngine.exitFlush(sessionID);
                 config.neo4jDriver().close();
+                scanner.close();
                 System.out.println("ARC: Offline. Safe travels, Sir.");
                 break;
             }
 
-            // Synchronization primitive to keep the AI and the Scanner from fighting for focus
+            if (input.equalsIgnoreCase("flush")) {
+                config.redisStore().deleteMessages(sessionID);
+                System.out.println("ARC: L2 memory wiped. Starting fresh context, Boss.");
+                System.out.print("> ");
+                continue;
+            }
+
             CompletableFuture<Void> turnComplete = new CompletableFuture<>();
 
             ARC.chat(sessionID, input)
@@ -93,42 +116,37 @@ public class ArcLauncher {
                     .onCompleteResponse(tokenResponse -> {
                         System.out.println();
 
-                        // Perform L2 Maintenance ONLY after the AI has finished its response
-                        List<ChatMessage> evictedMessages = syncEngine.getAndPrune(sessionID, config.MEMORY_THRESHOLD);
+                        List<ChatMessage> evictedMessages = syncEngine.getAndPrune(
+                                sessionID, config.MEMORY_THRESHOLD);
                         if (!evictedMessages.isEmpty()) {
-                            // Archive to L3 immediately to keep logs ordered
                             syncEngine.archiveToL3(evictedMessages);
                         }
 
-                        // Release the main thread to allow the next user input
                         System.out.print("\n> ");
                         turnComplete.complete(null);
                     })
                     .onError(t -> {
-                        System.err.println("\nARC DIAGNOSTIC ERROR: " + t.getMessage());
+                        System.err.println("\nARC DIAGNOSTIC ERROR: "
+                                + t.getClass().getSimpleName() + ": " + t.getMessage());
+                        t.printStackTrace(System.err);
                         System.out.print("\n> ");
                         turnComplete.complete(null);
                     })
                     .start();
 
-            // BLOCK the main thread until the AI turn is fully resolved
             turnComplete.join();
         }
     }
 
-
-     //Manual Override Protocol: Requires user input to proceed with file system modifications.
-    public static void authorizeModification(ToolExecutionRequest request) {
-        // Synchronized block ensures we don't have multiple prompts overlapping
+    public static void authorizeModification(ToolExecutionRequest request, Scanner sharedScanner) {
         synchronized (System.in) {
             System.out.println("\n\nARC: Boss, I am requesting permission to modify a file.");
-            System.out.println("Protocol: " + request.name());
+            System.out.println("Protocol:  " + request.name());
             System.out.println("Arguments: " + request.arguments());
             System.out.print("Authorize modification? (Yes/No): ");
 
-            Scanner authScanner = new Scanner(System.in);
-            if (authScanner.hasNextLine()) {
-                String choice = authScanner.nextLine();
+            if (sharedScanner.hasNextLine()) {
+                String choice = sharedScanner.nextLine().trim();
                 if (!choice.equalsIgnoreCase("yes")) {
                     throw new RuntimeException("Protocol Denied: Manual override by Boss.");
                 }

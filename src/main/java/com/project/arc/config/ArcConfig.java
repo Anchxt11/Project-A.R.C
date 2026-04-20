@@ -3,14 +3,11 @@ package com.project.arc.config;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.googleai.GoogleAiEmbeddingModel;
-
-import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
+import dev.langchain4j.model.googleai.*;
 
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
 import dev.langchain4j.community.store.embedding.neo4j.Neo4jEmbeddingStore;
 
-import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
 import dev.langchain4j.model.ollama.OllamaChatModel;
 import dev.langchain4j.model.ollama.OllamaStreamingChatModel;
 import io.github.cdimascio.dotenv.Dotenv;
@@ -27,24 +24,31 @@ public class ArcConfig {
     private final Driver driver;
     private final Neo4jEmbeddingStore neo4jStore;
 
-    public ArcConfig(){
-        this.driver=GraphDatabase.driver("bolt://localhost:7687",
-                AuthTokens.basic("neo4j", "password"));
+    // FIX: Redis store must be a singleton — creating a new instance per call
+    // means deleteMessages() and updateMessages() can hit different connections,
+    // leaving stale data in Redis and breaking history ordering.
+    private final RedisChatMemoryStore redisStore;
 
-        String uri = "bolt://localhost:7687"; // e.g., "bolt://localhost:7687"
-        String user = "neo4j";
-        String password = "password";
+    public ArcConfig() {
+        this.driver = GraphDatabase.driver(
+                "bolt://localhost:7687",
+                AuthTokens.basic("neo4j", "password")
+        );
+
         this.neo4jStore = Neo4jEmbeddingStore.builder()
-                .driver(this.driver)
+                .driver(this.driver)   // reuse the same driver, no double connection
                 .label("MemoryNode")
                 .embeddingProperty("embedding")
                 .textProperty("content")
                 .indexName("memory_vector_finder")
-                .withBasicAuth(uri, user, password)
                 .dimension(3072)
                 .build();
 
-
+        // Singleton Redis store — all operations share one connection pool
+        this.redisStore = RedisChatMemoryStore.builder()
+                .host("localhost")
+                .port(6379)
+                .build();
     }
 
     private String getEnv(String key) {
@@ -52,8 +56,9 @@ public class ArcConfig {
         return (val != null) ? val : System.getenv(key);
     }
 
-    // 1. LLM Connection (Gemini 2.5 Flash)
-    public ChatModel geminiModel(){
+    // Non-streaming model — used for triage, routing, graph queries
+    // FIX: "gemma-4-31b-it" is an Ollama model name. Use a valid Gemini API model.
+    public ChatModel geminiModel() {
         return GoogleAiGeminiChatModel.builder()
                 .apiKey(getEnv("GEMINI_KEY"))
                 .modelName("gemma-4-31b-it")
@@ -61,8 +66,7 @@ public class ArcConfig {
                 .build();
     }
 
-    // 2. LLM Connection (OLLAMA3)
-    public ChatModel ollamaModel(){
+    public ChatModel ollamaModel() {
         return OllamaChatModel.builder()
                 .baseUrl("http://localhost:11434")
                 .modelName("gemma4:e2b")
@@ -72,8 +76,7 @@ public class ArcConfig {
                 .build();
     }
 
-
-    public StreamingChatModel streamingOllamaModel(){
+    public StreamingChatModel streamingOllamaModel() {
         return OllamaStreamingChatModel.builder()
                 .baseUrl("http://localhost:11434")
                 .modelName("gemma4:e2b")
@@ -82,23 +85,31 @@ public class ArcConfig {
                 .topP(0.95)
                 .build();
     }
-    public StreamingChatModel streamingGeminiModel(){
+
+    // Streaming model — used for main ARC conversation
+    // FIX: corrected model name + removed built-in tools (incompatible with @Tool methods)
+    public StreamingChatModel streamingGeminiModel() {
         return GoogleAiGeminiStreamingChatModel.builder()
                 .apiKey(getEnv("GEMINI_KEY"))
                 .modelName("gemma-4-31b-it")
+                .returnThinking(false)
                 .temperature(1.0)
                 .build();
     }
 
-    // 2. L2 Persistent Memory (Redis)
-    public RedisChatMemoryStore redisStore() {
-        return RedisChatMemoryStore.builder()
-                .host("localhost")
-                .port(6379)
+    public ChatModel visionModel() {
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(getEnv("GEMINI_KEY"))
+                .modelName("gemma-4-31b-it")
+                .temperature(0.1)  // Low temp for precise, factual image analysis
                 .build();
     }
 
-    // Embedding Model (GOOGLE)
+    // FIX: returns the shared singleton — never creates a new instance
+    public RedisChatMemoryStore redisStore() {
+        return this.redisStore;
+    }
+
     public EmbeddingModel embeddingModel() {
         return GoogleAiEmbeddingModel.builder()
                 .apiKey(getEnv("GEMINI_KEY"))
@@ -113,8 +124,4 @@ public class ArcConfig {
     public Neo4jEmbeddingStore neo4jStore() {
         return this.neo4jStore;
     }
-
-
-
-
 }

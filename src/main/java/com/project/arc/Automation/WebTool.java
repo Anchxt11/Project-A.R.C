@@ -14,4 +14,14 @@ public class WebTool {
     public String searchWeb(@P("The search query for the live web") String query) {
         return automationService.performWebSearch(query);
     }
+
+    @Tool("Opens a website or URL in the user's default browser. " +
+            "Use when the user says 'open [site]', 'go to [url]', 'launch [website]', " +
+            "'open youtube', 'take me to github.com', or shares any link to visit. " +
+            "Accepts bare domains like 'youtube.com' or full URLs like 'https://github.com/user/repo'.")
+    public String openInBrowser(
+            @P("The website URL or domain to open — e.g. 'youtube.com', 'https://github.com/torvalds/linux'")
+            String url) {
+        return automationService.openInBrowser(url);
+    }
 }
