@@ -46,8 +46,11 @@ public class MemoryRetrievalService {
                 "Personal notes, technical documentation, code snippets, and general and simple facts." +
                         "Use this for 90% of the queries.");
         routingRules.put(deepRetriever,
-                "Use this for mapping relationships, class hierarchies, hidden connections,file dependencies, and project " +
-                        "structure. It contains the architectural 'how' and the links between different entities.");
+                "Use ONLY for mapping complex historical relationships, class hierarchies, and entity links. " +
+                        "Use ONLY for architectural deep-dives into our local Neo4j graph." +
+                        "DO NOT use this for current system status, file system navigation, or active directory queries. " +
+                        "If the user asks what you can 'do' or 'see' right now, DO NOT use this retriever." +
+                        "DO NOT use for routine file updates or status checks.");
 
         // Building the query Router
         var router = LanguageModelQueryRouter.builder()

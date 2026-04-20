@@ -7,9 +7,9 @@ public class prompts {
                     Fragments:
                     %s
                     Your Mission:
-                    1. Synthesize these connections and their specific 'Context' details into a coherent situation report.
-                    2. Identify 'Hidden Context' (e.g., if a file is linked to a person I haven't mentioned).
-                    3. Report back to the Boss with dry wit and technical precision.""";
+                    1. Provide a one-sentence technical summary of these connections only IF they are relevant to the user's current query.
+                    2. If the fragments are irrelevant or redundant, acknowledge the action only.
+                    3. Maintain extreme brevity. No bullet points unless requested.""";
 
     public static final String BREADCRUMB_PROMPT =
             """

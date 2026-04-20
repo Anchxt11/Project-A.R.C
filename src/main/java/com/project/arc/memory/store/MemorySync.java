@@ -14,6 +14,7 @@ import com.project.arc.config.ArcConfig;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import org.neo4j.driver.Values;
 
 
