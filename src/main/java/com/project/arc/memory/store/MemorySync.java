@@ -26,7 +26,7 @@ public class MemorySync {
     //Constructing Variables
     public MemorySync(ArcConfig config) {
         this.config = config;
-        this.arcBrain = config.ollamaModel();
+        this.arcBrain = config.geminiModel();
     }
 
     //Finding 2 oldest messages out of L1 Window and adding them to L3

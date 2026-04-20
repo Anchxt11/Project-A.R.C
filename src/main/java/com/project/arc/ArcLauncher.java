@@ -41,8 +41,8 @@ public class ArcLauncher {
         // 2. Build ARC Assistant Service
         ArcAssistant ARC = AiServices.builder(ArcAssistant.class)
                 .streamingChatModel(config.streamingGeminiModel())
-                .chatModel(config.ollamaModel())
-                .tools(arcTools, fileSystemTools)
+                .chatModel(config.geminiModel())
+                .tools(arcTools, fileSystemTools, webTool)
                 .toolProvider(mcpTool.mcpToolProvider())
                 .beforeToolExecution(event -> {
                     ToolExecutionRequest toolRequest = event.request();

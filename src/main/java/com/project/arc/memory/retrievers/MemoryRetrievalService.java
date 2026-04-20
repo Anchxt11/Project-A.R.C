@@ -54,7 +54,7 @@ public class MemoryRetrievalService {
 
         // Building the query Router
         var router = LanguageModelQueryRouter.builder()
-                .chatModel(config.ollamaModel())
+                .chatModel(config.geminiModel())
                 .retrieverToDescription(routingRules)
                 .build();
 

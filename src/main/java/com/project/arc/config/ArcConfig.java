@@ -56,7 +56,7 @@ public class ArcConfig {
     public ChatModel geminiModel(){
         return GoogleAiGeminiChatModel.builder()
                 .apiKey(getEnv("GEMINI_KEY"))
-                .modelName("gemini-2.5-flash")
+                .modelName("gemma-4-31b-it")
                 .temperature(0.2)
                 .build();
     }
